@@ -39,15 +39,32 @@
             background: #cccccc;
             cursor: not-allowed;
         }
+        .connection-status {
+            text-align: center;
+            margin: 10px;
+            font-size: 16px;
+        }
+        .error-log {
+            color: red;
+            text-align: center;
+            margin: 10px;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
     <div class="status-message" id="statusMessage">
-        Not Connected - Waiting for Connection
+        Connection Status: Disconnected
     </div>
     
+    <div class="connection-status" id="connectionDetails">
+        Waiting for peer connection...
+    </div>
+
+    <div class="error-log" id="errorLog"></div>
+
     <button class="connect-button" id="connectButton">
-        Try to Connect
+        Connect to Friend
     </button>
 
     <div class="video-container">
@@ -59,14 +76,19 @@
         const localVideo = document.getElementById('localVideo');
         const remoteVideo = document.getElementById('remoteVideo');
         const statusMessage = document.getElementById('statusMessage');
+        const connectionDetails = document.getElementById('connectionDetails');
+        const errorLog = document.getElementById('errorLog');
         const connectButton = document.getElementById('connectButton');
         let localStream;
         let peerConnection;
+        let connectionAttempts = 0;
+        const MAX_ATTEMPTS = 3;
 
         const configuration = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
                 {
                     urls: 'turn:numb.viagenie.ca',
                     credential: 'muazkh',
@@ -76,8 +98,16 @@
         };
 
         async function startConnection() {
-            statusMessage.textContent = 'Trying to connect...';
+            if (connectionAttempts >= MAX_ATTEMPTS) {
+                errorLog.textContent = 'Maximum connection attempts reached. Please try again later.';
+                return;
+            }
+
+            connectionAttempts++;
+            statusMessage.textContent = 'Connection Status: Attempting to Connect...';
+            connectionDetails.textContent = `Attempt ${connectionAttempts} of ${MAX_ATTEMPTS}`;
             connectButton.disabled = true;
+            errorLog.textContent = '';
 
             try {
                 // Get camera and microphone
@@ -87,7 +117,10 @@
                 });
                 localVideo.srcObject = localStream;
 
-                // Create peer connection
+                // Create new peer connection
+                if (peerConnection) {
+                    peerConnection.close();
+                }
                 peerConnection = new RTCPeerConnection(configuration);
 
                 // Add local stream
@@ -100,32 +133,42 @@
                     remoteVideo.srcObject = event.streams[0];
                 };
 
-                // Connection state handling
+                // Connection state monitoring
                 peerConnection.onconnectionstatechange = () => {
+                    statusMessage.textContent = `Connection Status: ${peerConnection.connectionState}`;
+                    
                     if (peerConnection.connectionState === 'disconnected') {
-                        statusMessage.textContent = 'Not Connected - Connection Lost';
+                        connectionDetails.textContent = 'Connection lost. Please try reconnecting.';
+                        connectButton.disabled = false;
+                    } else if (peerConnection.connectionState === 'failed') {
+                        connectionDetails.textContent = 'Connection failed. Check your internet connection.';
                         connectButton.disabled = false;
                     }
                 };
 
-                // ICE connection state handling
+                // ICE connection monitoring
                 peerConnection.oniceconnectionstatechange = () => {
+                    connectionDetails.textContent = `ICE Connection: ${peerConnection.iceConnectionState}`;
+                    
                     if (peerConnection.iceConnectionState === 'failed') {
-                        statusMessage.textContent = 'Not Connected - Failed to Connect';
+                        errorLog.textContent = 'Failed to establish peer connection. Please check your network.';
                         connectButton.disabled = false;
                     }
                 };
 
-                // Here we need a signaling server to exchange connection info
-                // This is just a placeholder showing the connection is not complete
+                // Signaling server connection simulation
                 setTimeout(() => {
-                    statusMessage.textContent = 'Not Connected - No Signaling Server Available';
+                    statusMessage.textContent = 'Connection Status: No Signaling Server';
+                    connectionDetails.textContent = 'Cannot establish connection - Missing signaling server';
+                    errorLog.textContent = 'A signaling server is required to connect with your friend';
                     connectButton.disabled = false;
                 }, 3000);
 
             } catch (error) {
-                console.error('Connection failed:', error);
-                statusMessage.textContent = 'Not Connected - Cannot Access Camera/Microphone';
+                console.error('Connection error:', error);
+                statusMessage.textContent = 'Connection Status: Error';
+                connectionDetails.textContent = 'Failed to access camera/microphone';
+                errorLog.textContent = error.message;
                 connectButton.disabled = false;
             }
         }
