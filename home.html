@@ -126,9 +126,12 @@
         let connectionAttempts = 0;
         const MAX_ATTEMPTS = 5;
         let reconnectTimer = null;
+        let isConnecting = false;
 
-        // Generate a random room code when page loads
-        const myRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        // Generate a persistent room code that stays the same for the session
+        const myRoomCode = localStorage.getItem('myRoomCode') || 
+                          Math.random().toString(36).substring(2, 8).toUpperCase();
+        localStorage.setItem('myRoomCode', myRoomCode);
         roomCode.textContent = myRoomCode;
 
         // Copy button functionality
@@ -158,60 +161,171 @@
                     credential: 'webrtc',
                     username: 'webrtc'
                 }
-            ]
+            ],
+            iceTransportPolicy: 'all',
+            iceCandidatePoolSize: 10,
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require'
         };
 
-        // WebSocket connection
-        const ws = new WebSocket('wss://your-signaling-server.com');
+        let ws;
+        function connectWebSocket() {
+            ws = new WebSocket('wss://your-signaling-server.com');
 
-        ws.onopen = () => {
-            console.log('Connected to signaling server');
-            statusMessage.textContent = 'Connected to signaling server';
-        };
+            ws.onopen = () => {
+                console.log('Connected to signaling server');
+                statusMessage.textContent = 'Connected to signaling server';
+                // Register room code with server
+                ws.send(JSON.stringify({
+                    type: 'register',
+                    roomCode: myRoomCode
+                }));
+            };
 
-        ws.onclose = () => {
-            console.log('Disconnected from signaling server');
-            statusMessage.textContent = 'Disconnected from signaling server';
-            setTimeout(() => {
-                window.location.reload();
-            }, 3000);
-        };
+            ws.onclose = () => {
+                console.log('Disconnected from signaling server');
+                statusMessage.textContent = 'Disconnected from signaling server';
+                // Try to reconnect WebSocket after delay
+                setTimeout(connectWebSocket, 5000);
+            };
 
-        ws.onmessage = async (event) => {
-            const message = JSON.parse(event.data);
-            try {
-                if (message.type === 'offer' && message.target === myRoomCode) {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    ws.send(JSON.stringify({
-                        type: 'answer',
-                        answer: answer,
-                        target: roomInput.value,
-                        from: myRoomCode
-                    }));
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                errorLog.textContent = 'Signaling server connection error. Retrying...';
+            };
+
+            ws.onmessage = async (event) => {
+                const message = JSON.parse(event.data);
+                try {
+                    if (message.type === 'offer' && message.target === myRoomCode) {
+                        if (!peerConnection || peerConnection.connectionState === 'closed') {
+                            await setupPeerConnection();
+                        }
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
+                        const answer = await peerConnection.createAnswer();
+                        await peerConnection.setLocalDescription(answer);
+                        ws.send(JSON.stringify({
+                            type: 'answer',
+                            answer: answer,
+                            target: roomInput.value,
+                            from: myRoomCode
+                        }));
+                    }
+                    else if (message.type === 'answer' && message.target === myRoomCode) {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
+                    }
+                    else if (message.type === 'ice-candidate' && message.target === myRoomCode) {
+                        if (peerConnection && peerConnection.remoteDescription) {
+                            await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error handling message:', error);
+                    errorLog.textContent = `Signaling error: ${error.message}`;
                 }
-                else if (message.type === 'answer' && message.target === myRoomCode) {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
-                }
-                else if (message.type === 'ice-candidate' && message.target === myRoomCode) {
-                    await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
-                }
-            } catch (error) {
-                console.error('Error handling message:', error);
-                errorLog.textContent = `Signaling error: ${error.message}`;
+            };
+        }
+
+        async function setupPeerConnection() {
+            if (peerConnection) {
+                peerConnection.close();
             }
-        };
+
+            peerConnection = new RTCPeerConnection(configuration);
+
+            // Add local stream
+            if (!localStream) {
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true
+                });
+                localVideo.srcObject = localStream;
+            }
+
+            localStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, localStream);
+            });
+
+            // ICE candidate handling with buffering
+            let iceCandidateBuffer = [];
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    iceCandidateBuffer.push(event.candidate);
+                    // Send candidates in batches
+                    if (iceCandidateBuffer.length >= 5 || !event.candidate) {
+                        ws.send(JSON.stringify({
+                            type: 'ice-candidate',
+                            candidates: iceCandidateBuffer,
+                            target: roomInput.value,
+                            from: myRoomCode
+                        }));
+                        iceCandidateBuffer = [];
+                    }
+                }
+            };
+
+            // Listen for remote stream
+            peerConnection.ontrack = (event) => {
+                if (remoteVideo.srcObject !== event.streams[0]) {
+                    remoteVideo.srcObject = event.streams[0];
+                }
+            };
+
+            // Connection state monitoring with improved stability
+            peerConnection.onconnectionstatechange = () => {
+                statusMessage.textContent = `Connection Status: ${peerConnection.connectionState}`;
+                if (peerConnection.connectionState === 'connected') {
+                    connectionDetails.textContent = 'Successfully connected!';
+                    errorLog.textContent = '';
+                    isConnecting = false;
+                    connectionAttempts = 0;
+                } else if (peerConnection.connectionState === 'disconnected' || 
+                         peerConnection.connectionState === 'failed') {
+                    if (!isConnecting) {
+                        connectionDetails.textContent = 'Connection lost. Attempting to reconnect...';
+                        if (reconnectTimer) clearTimeout(reconnectTimer);
+                        reconnectTimer = setTimeout(() => {
+                            if (!isConnecting) {
+                                startConnection();
+                            }
+                        }, 5000);
+                    }
+                }
+            };
+
+            // Additional connection stability monitoring
+            peerConnection.oniceconnectionstatechange = () => {
+                console.log('ICE Connection State:', peerConnection.iceConnectionState);
+                if (peerConnection.iceConnectionState === 'failed') {
+                    if (!isConnecting) {
+                        errorLog.textContent = 'ICE Connection failed. Retrying with new configuration...';
+                        if (reconnectTimer) clearTimeout(reconnectTimer);
+                        reconnectTimer = setTimeout(() => {
+                            if (!isConnecting) {
+                                configuration.iceTransportPolicy = 
+                                    configuration.iceTransportPolicy === 'all' ? 'relay' : 'all';
+                                startConnection();
+                            }
+                        }, 3000);
+                    }
+                }
+            };
+        }
 
         async function startConnection() {
+            if (isConnecting) return;
+            isConnecting = true;
+
             if (!roomInput.value.trim()) {
                 errorLog.textContent = 'Please enter your friend\'s room code first';
+                isConnecting = false;
                 return;
             }
 
             if (connectionAttempts >= MAX_ATTEMPTS) {
                 errorLog.textContent = 'Too many failed attempts. Please try again later.';
                 connectButton.disabled = true;
+                isConnecting = false;
                 setTimeout(() => {
                     connectionAttempts = 0;
                     connectButton.disabled = false;
@@ -227,43 +341,14 @@
             errorLog.textContent = '';
 
             try {
-                // Get camera and microphone
-                localStream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
-                    audio: true
-                });
-                localVideo.srcObject = localStream;
-
-                // Create new peer connection
-                if (peerConnection) {
-                    peerConnection.close();
-                }
-                peerConnection = new RTCPeerConnection(configuration);
-
-                // Add local stream
-                localStream.getTracks().forEach(track => {
-                    peerConnection.addTrack(track, localStream);
-                });
-
-                // ICE candidate handling
-                peerConnection.onicecandidate = (event) => {
-                    if (event.candidate) {
-                        ws.send(JSON.stringify({
-                            type: 'ice-candidate',
-                            candidate: event.candidate,
-                            target: roomInput.value,
-                            from: myRoomCode
-                        }));
-                    }
-                };
-
-                // Listen for remote stream
-                peerConnection.ontrack = (event) => {
-                    remoteVideo.srcObject = event.streams[0];
-                };
+                await setupPeerConnection();
 
                 // Create and send offer
-                const offer = await peerConnection.createOffer();
+                const offer = await peerConnection.createOffer({
+                    offerToReceiveAudio: true,
+                    offerToReceiveVideo: true,
+                    iceRestart: true
+                });
                 await peerConnection.setLocalDescription(offer);
                 ws.send(JSON.stringify({
                     type: 'offer',
@@ -272,34 +357,30 @@
                     from: myRoomCode
                 }));
 
-                // Connection state monitoring
-                peerConnection.onconnectionstatechange = () => {
-                    statusMessage.textContent = `Connection Status: ${peerConnection.connectionState}`;
-                    if (peerConnection.connectionState === 'connected') {
-                        connectionDetails.textContent = 'Successfully connected!';
-                        errorLog.textContent = '';
-                    } else if (peerConnection.connectionState === 'disconnected' || 
-                             peerConnection.connectionState === 'failed') {
-                        connectionDetails.textContent = 'Connection lost. Attempting to reconnect...';
-                        if (reconnectTimer) clearTimeout(reconnectTimer);
-                        reconnectTimer = setTimeout(startConnection, 3000);
-                    }
-                };
+                connectButton.disabled = false;
 
             } catch (error) {
                 console.error('Connection error:', error);
                 statusMessage.textContent = 'Connection Status: Error';
-                connectionDetails.textContent = 'Failed to access camera/microphone';
-                errorLog.textContent = `Error: ${error.message}. Please check camera/microphone permissions.`;
+                connectionDetails.textContent = 'Failed to establish connection';
+                errorLog.textContent = `Error: ${error.message}. Please try again.`;
                 connectButton.disabled = false;
+                isConnecting = false;
             }
         }
 
-        // Connect button handler with debounce
+        // Initialize WebSocket connection
+        connectWebSocket();
+
+        // Connect button handler with debounce and retry logic
         let debounceTimeout;
         connectButton.addEventListener('click', () => {
             if (debounceTimeout) clearTimeout(debounceTimeout);
-            debounceTimeout = setTimeout(startConnection, 300);
+            debounceTimeout = setTimeout(() => {
+                if (!isConnecting) {
+                    startConnection();
+                }
+            }, 300);
         });
 
         // Room input validation
@@ -320,15 +401,21 @@
             if (reconnectTimer) {
                 clearTimeout(reconnectTimer);
             }
-            if (ws.readyState === WebSocket.OPEN) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.close();
             }
+            localStorage.removeItem('myRoomCode');
         });
 
         // Handle page visibility changes
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && peerConnection?.connectionState === 'disconnected') {
-                startConnection();
+            if (document.visibilityState === 'visible') {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    connectWebSocket();
+                }
+                if (peerConnection?.connectionState === 'disconnected' && !isConnecting) {
+                    startConnection();
+                }
             }
         });
     </script>
