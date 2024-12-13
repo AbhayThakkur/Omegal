@@ -222,6 +222,7 @@
     let callTimer;
     let callStartTime;
     let currentCallerId;
+    let myId;
 
     // Function to generate random ID
     function generateRandomId(length = 8) {
@@ -236,9 +237,9 @@
     // Function to display random ID when page loads
     function generateAndDisplayId() {
         const myIdInput = document.getElementById('myId');
-        const randomId = generateRandomId();
-        myIdInput.value = randomId;
-        socket.emit('register', randomId);
+        myId = generateRandomId();
+        myIdInput.value = myId;
+        socket.emit('register', myId);
     }
 
     // Function to copy ID to clipboard
@@ -251,7 +252,7 @@
 
     // Function to start random match
     function startRandomMatch() {
-        socket.emit('find-random-match', document.getElementById('myId').value);
+        socket.emit('find-random-match', myId);
         setupCall();
     }
 
@@ -264,8 +265,13 @@
     function startPrivateCall() {
         const peerId = document.getElementById('peerId').value;
         if (peerId) {
+            if(peerId === myId) {
+                alert("You cannot call yourself!");
+                return;
+            }
+            currentCallerId = peerId;
             socket.emit('initiate-call', {
-                from: document.getElementById('myId').value,
+                from: myId,
                 to: peerId
             });
             setupCall();
@@ -274,6 +280,9 @@
 
     // Function to show incoming call dialog
     function showIncomingCall(callerId) {
+        if(callerId === myId) {
+            return;
+        }
         currentCallerId = callerId;
         document.getElementById('callerId').textContent = callerId;
         document.getElementById('incomingCall').style.display = 'block';
@@ -286,7 +295,10 @@
         document.getElementById('incomingCall').style.display = 'none';
         stopRingtone();
         setupCall();
-        socket.emit('accept-call', currentCallerId);
+        socket.emit('accept-call', {
+            from: myId,
+            to: currentCallerId
+        });
         startCallTimer();
     }
 
@@ -294,7 +306,10 @@
     function rejectIncomingCall() {
         document.getElementById('incomingCall').style.display = 'none';
         stopRingtone();
-        socket.emit('reject-call', currentCallerId);
+        socket.emit('reject-call', {
+            from: myId,
+            to: currentCallerId
+        });
         currentCallerId = null;
     }
 
@@ -335,6 +350,7 @@
             if (event.candidate) {
                 socket.emit('ice-candidate', {
                     candidate: event.candidate,
+                    from: myId,
                     to: currentCallerId
                 });
             }
@@ -394,39 +410,52 @@
         document.getElementById('remoteVideo').srcObject = null;
         document.getElementById('callInterface').classList.add("hidden");
         document.getElementById('homeScreen').classList.remove("hidden");
-        socket.emit('end-call', currentCallerId);
+        socket.emit('end-call', {
+            from: myId,
+            to: currentCallerId
+        });
         currentCallerId = null;
     }
 
     // Socket event handlers
-    socket.on("call-initiated", (callerId) => {
-        showIncomingCall(callerId);
+    socket.on("call-initiated", (data) => {
+        if(data.to === myId) {
+            showIncomingCall(data.from);
+        }
     });
 
-    socket.on("call-accepted", () => {
-        document.getElementById('callInterface').classList.remove("hidden");
-        startCallTimer();
+    socket.on("call-accepted", (data) => {
+        if(data.to === myId) {
+            document.getElementById('callInterface').classList.remove("hidden");
+            startCallTimer();
+        }
     });
 
-    socket.on("call-rejected", () => {
-        alert("Call was rejected");
-        endCall();
+    socket.on("call-rejected", (data) => {
+        if(data.to === myId) {
+            alert("Call was rejected");
+            endCall();
+        }
     });
 
-    socket.on("call-ended", () => {
-        alert("Call ended by remote user");
-        endCall();
+    socket.on("call-ended", (data) => {
+        if(data.to === myId) {
+            alert("Call ended by remote user");
+            endCall();
+        }
     });
 
-    socket.on("random-match-found", (matchId) => {
-        console.log("Matched with:", matchId);
-        currentCallerId = matchId;
-        setupCall();
-        startCallTimer();
+    socket.on("random-match-found", (data) => {
+        if(data.to === myId) {
+            console.log("Matched with:", data.from);
+            currentCallerId = data.from;
+            setupCall();
+            startCallTimer();
+        }
     });
 
     socket.on("ice-candidate", (data) => {
-        if (peerConnection) {
+        if(data.to === myId && peerConnection) {
             peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate))
                 .catch(e => console.error(e));
         }
