@@ -25,175 +25,178 @@
             margin: 0 10px;
             font-size: 16px;
         }
-        .status {
+        .connection-status {
             text-align: center;
-            color: #666;
+            padding: 10px;
             margin: 10px;
+            background-color: #ffebee;
+            border: 1px solid #ffcdd2;
+            border-radius: 4px;
         }
-        .room-code {
-            text-align: center;
-            margin: 20px;
+        #connectionError {
+            color: #c62828;
+            font-weight: bold;
+        }
+        .retry-button {
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .retry-button:hover {
+            background-color: #1976D2;
         }
     </style>
 </head>
 <body>
-    <div class="room-code">
-        <input type="text" id="roomInput" placeholder="Enter room code">
-        <button id="joinRoom">Join Room</button>
-        <button id="createRoom">Create New Room</button>
+    <div class="connection-status">
+        <p id="connectionError">Not connected to video chat</p>
+        <button id="retryConnection" class="retry-button">Retry Connection</button>
     </div>
-    <div class="status" id="connectionStatus">Not connected</div>
+    
     <div class="video-container">
         <video id="localVideo" autoplay playsinline></video>
         <video id="remoteVideo" autoplay playsinline></video>
-    </div>
-    <div class="controls">
-        <button id="startButton">Start Camera</button>
     </div>
 
     <script>
         const localVideo = document.getElementById('localVideo');
         const remoteVideo = document.getElementById('remoteVideo');
-        const startButton = document.getElementById('startButton');
-        const joinRoomButton = document.getElementById('joinRoom');
-        const createRoomButton = document.getElementById('createRoom');
-        const roomInput = document.getElementById('roomInput');
-        const statusDiv = document.getElementById('connectionStatus');
+        const retryButton = document.getElementById('retryConnection');
+        const connectionError = document.getElementById('connectionError');
         let localStream;
         let peerConnection;
-        let roomId;
+        let connectionAttempts = 0;
+        const MAX_RETRIES = 3;
 
         const configuration = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
                 {
                     urls: 'turn:numb.viagenie.ca',
                     credential: 'muazkh',
                     username: 'webrtc@live.com'
                 }
-            ]
+            ],
+            iceCandidatePoolSize: 10
         };
 
-        // Initialize WebSocket connection to signaling server
-        const ws = new WebSocket('wss://your-signaling-server.com');
-
-        ws.onmessage = async (message) => {
-            const data = JSON.parse(message.data);
+        async function initConnection() {
+            connectionError.textContent = 'Attempting to connect...';
             
-            switch(data.type) {
-                case 'room-created':
-                    roomId = data.roomId;
-                    statusDiv.textContent = `Room created! Share code: ${roomId}`;
-                    break;
-                    
-                case 'user-joined':
-                    statusDiv.textContent = 'Friend joined! Connecting...';
-                    createPeerConnection();
-                    break;
-                    
-                case 'offer':
-                    await handleOffer(data.offer);
-                    break;
-                    
-                case 'answer':
-                    await handleAnswer(data.answer);
-                    break;
-                    
-                case 'ice-candidate':
-                    await handleIceCandidate(data.candidate);
-                    break;
-            }
-        };
-
-        startButton.addEventListener('click', initLocalStream);
-        createRoomButton.addEventListener('click', createRoom);
-        joinRoomButton.addEventListener('click', joinRoom);
-
-        async function initLocalStream() {
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                localVideo.srcObject = localStream;
-                startButton.disabled = true;
-                statusDiv.textContent = 'Camera started. Create or join a room to connect.';
+                // Reset previous connection if exists
+                if (peerConnection) {
+                    peerConnection.close();
+                }
+                
+                // Get local stream
+                if (!localStream) {
+                    localStream = await navigator.mediaDevices.getUserMedia({ 
+                        video: true, 
+                        audio: true 
+                    });
+                    localVideo.srcObject = localStream;
+                }
+
+                // Create new peer connection
+                peerConnection = new RTCPeerConnection(configuration);
+                
+                // Add connection state monitoring
+                peerConnection.onconnectionstatechange = handleConnectionStateChange;
+                peerConnection.oniceconnectionstatechange = handleIceConnectionStateChange;
+                
+                // Add local tracks to connection
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                });
+
+                // Handle remote stream
+                peerConnection.ontrack = event => {
+                    remoteVideo.srcObject = event.streams[0];
+                };
+
+                // Create and set offer
+                const offer = await peerConnection.createOffer({
+                    offerToReceiveAudio: true,
+                    offerToReceiveVideo: true
+                });
+                await peerConnection.setLocalDescription(offer);
+
+                // Monitor ICE gathering state
+                peerConnection.onicegatheringstatechange = () => {
+                    if (peerConnection.iceGatheringState === 'complete') {
+                        checkConnection();
+                    }
+                };
+
             } catch (error) {
-                console.error('Error accessing camera:', error);
-                statusDiv.textContent = 'Failed to access camera. Please check permissions.';
+                handleConnectionError(error);
             }
         }
 
-        function createRoom() {
-            if (!localStream) {
-                alert('Please start your camera first!');
-                return;
+        function handleConnectionStateChange() {
+            switch(peerConnection.connectionState) {
+                case 'connected':
+                    connectionError.textContent = 'Connected successfully!';
+                    connectionError.style.color = '#2E7D32';
+                    break;
+                case 'disconnected':
+                case 'failed':
+                    handleConnectionError('Connection lost or failed');
+                    break;
+                case 'closed':
+                    connectionError.textContent = 'Connection closed';
+                    break;
             }
-            ws.send(JSON.stringify({ type: 'create-room' }));
         }
 
-        function joinRoom() {
-            if (!localStream) {
-                alert('Please start your camera first!');
-                return;
+        function handleIceConnectionStateChange() {
+            if (peerConnection.iceConnectionState === 'failed') {
+                handleConnectionError('ICE connection failed');
             }
-            const code = roomInput.value.trim();
-            if (!code) {
-                alert('Please enter a room code!');
-                return;
-            }
-            ws.send(JSON.stringify({ type: 'join-room', roomId: code }));
-            statusDiv.textContent = 'Joining room...';
         }
 
-        async function createPeerConnection() {
-            peerConnection = new RTCPeerConnection(configuration);
+        function handleConnectionError(error) {
+            console.error('Connection error:', error);
+            connectionError.textContent = 'Failed to connect. Please try again.';
+            connectionError.style.color = '#c62828';
+            connectionAttempts++;
             
-            localStream.getTracks().forEach(track => {
-                peerConnection.addTrack(track, localStream);
-            });
-
-            peerConnection.ontrack = event => {
-                remoteVideo.srcObject = event.streams[0];
-                statusDiv.textContent = 'Connected! Video chat is active.';
-            };
-
-            peerConnection.onicecandidate = event => {
-                if (event.candidate) {
-                    ws.send(JSON.stringify({
-                        type: 'ice-candidate',
-                        candidate: event.candidate,
-                        roomId: roomId
-                    }));
-                }
-            };
-
-            peerConnection.oniceconnectionstatechange = () => {
-                if (peerConnection.iceConnectionState === 'disconnected') {
-                    statusDiv.textContent = 'Connection lost. Please try reconnecting.';
-                }
-            };
-        }
-
-        async function handleOffer(offer) {
-            await createPeerConnection();
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            ws.send(JSON.stringify({
-                type: 'answer',
-                answer: answer,
-                roomId: roomId
-            }));
-        }
-
-        async function handleAnswer(answer) {
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-        }
-
-        async function handleIceCandidate(candidate) {
-            if (peerConnection) {
-                await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            if (connectionAttempts >= MAX_RETRIES) {
+                connectionError.textContent = 'Connection failed after multiple attempts. Please check your internet connection.';
+                retryButton.disabled = true;
             }
         }
+
+        function checkConnection() {
+            if (!peerConnection || peerConnection.connectionState === 'failed') {
+                handleConnectionError('Connection check failed');
+            }
+        }
+
+        // Add retry button functionality
+        retryButton.addEventListener('click', () => {
+            if (connectionAttempts < MAX_RETRIES) {
+                initConnection();
+            }
+        });
+
+        // Initialize connection on page load
+        window.addEventListener('load', initConnection);
+
+        // Add window unload handler to clean up
+        window.addEventListener('unload', () => {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+            }
+            if (peerConnection) {
+                peerConnection.close();
+            }
+        });
     </script>
 </body>
 </html>
