@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Chat App</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <style>
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .neon-button {
+            box-shadow: 0 0 15px rgba(66, 135, 245, 0.5);
+            transition: all 0.3s ease;
+        }
+        
+        .neon-button:hover {
+            box-shadow: 0 0 25px rgba(66, 135, 245, 0.8);
+            transform: scale(1.05);
+        }
+
+        .dark-mode {
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #22c55e;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .draggable-video {
+            cursor: move;
+            transition: transform 0.2s;
+        }
+
+        .call-summary {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 2rem;
+            border-radius: 15px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600">
+    <div class="particles" id="particles"></div>
+
+    <!-- Theme Toggle -->
+    <button onclick="toggleTheme()" class="fixed top-4 right-4 neon-button bg-gray-800 text-white px-4 py-2 rounded-full">
+        Toggle Theme
+    </button>
+
+    <!-- Home Screen -->
+    <div id="homeScreen" class="container mx-auto px-4 py-8">
+        <div class="glass-panel p-8 max-w-2xl mx-auto">
+            <h1 class="text-4xl font-bold text-white text-center mb-8">Video Chat App</h1>
+            
+            <!-- My ID Section -->
+            <div class="bg-white bg-opacity-20 rounded-lg p-6 mb-8">
+                <h2 class="text-2xl font-semibold text-white mb-4">My ID</h2>
+                <div class="flex items-center space-x-2">
+                    <div class="status-indicator"></div>
+                    <input type="text" id="myId" readonly class="bg-white bg-opacity-20 text-white px-4 py-3 rounded flex-grow text-lg font-mono" value="Generating ID...">
+                    <button onclick="copyId()" class="neon-button bg-blue-500 text-white px-6 py-3 rounded flex items-center">
+                        <span>Copy ID</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Main Actions -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <button onclick="startRandomMatch()" class="neon-button bg-green-500 text-white px-8 py-6 rounded-lg text-xl font-bold hover:bg-green-600">
+                    Random Match
+                </button>
+                <button onclick="showPrivateCall()" class="neon-button bg-purple-500 text-white px-8 py-6 rounded-lg text-xl font-bold hover:bg-purple-600">
+                    Private Call
+                </button>
+            </div>
+
+            <!-- Private Call Input -->
+            <div id="privateCallSection" class="hidden bg-white bg-opacity-20 rounded-lg p-6">
+                <h2 class="text-xl font-semibold text-white mb-4">Start Private Call</h2>
+                <div class="flex items-center space-x-2">
+                    <input type="text" id="peerId" placeholder="Enter friend's ID" class="bg-white bg-opacity-20 text-white px-4 py-3 rounded flex-grow">
+                    <button onclick="startPrivateCall()" class="neon-button bg-blue-500 text-white px-6 py-3 rounded">Call</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Call Interface -->
+    <div id="callInterface" class="hidden fixed inset-0 bg-black">
+        <div class="relative h-full">
+            <!-- Remote Video -->
+            <video id="remoteVideo" class="w-full h-full object-cover" autoplay playsinline></video>
+            
+            <!-- Local Video (Draggable) -->
+            <video id="localVideo" class="draggable-video absolute top-4 right-4 w-1/4 max-w-xs rounded-lg shadow-lg" autoplay playsinline muted></video>
+            
+            <!-- Call Status -->
+            <div class="absolute top-4 left-4 bg-black bg-opacity-50 rounded-lg p-2">
+                <div class="flex items-center">
+                    <div class="status-indicator"></div>
+                    <span class="text-white">Connected</span>
+                </div>
+                <div class="text-white text-sm mt-1">
+                    <span id="callDuration">00:00</span>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex items-center space-x-4 bg-black bg-opacity-50 p-4 rounded-full">
+                <button onclick="toggleAudio()" class="neon-button bg-blue-500 p-4 rounded-full hover:bg-blue-600">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                    </svg>
+                </button>
+                <button onclick="toggleVideo()" class="neon-button bg-blue-500 p-4 rounded-full hover:bg-blue-600">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                    </svg>
+                </button>
+                <button onclick="toggleScreenShare()" class="neon-button bg-blue-500 p-4 rounded-full hover:bg-blue-600">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                    </svg>
+                </button>
+                <button onclick="toggleRecording()" class="neon-button bg-blue-500 p-4 rounded-full hover:bg-blue-600">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" stroke-width="2"></circle>
+                        <circle cx="12" cy="12" r="4" fill="currentColor"></circle>
+                    </svg>
+                </button>
+                <button onclick="toggleChat()" class="neon-button bg-blue-500 p-4 rounded-full hover:bg-blue-600">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                    </svg>
+                </button>
+                <button onclick="endCall()" class="neon-button bg-red-500 p-4 rounded-full hover:bg-red-600">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Chat Panel -->
+            <div id="chatPanel" class="hidden absolute right-4 top-1/4 bottom-24 w-72 bg-black bg-opacity-50 rounded-lg p-4">
+                <div id="chatMessages" class="h-full overflow-y-auto mb-4"></div>
+                <div class="flex">
+                    <input type="text" id="chatInput" class="flex-grow bg-white bg-opacity-20 text-white px-3 py-2 rounded-l" placeholder="Type a message...">
+                    <button onclick="sendMessage()" class="neon-button bg-blue-500 px-4 rounded-r">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Call Summary -->
+    <div id="callSummary" class="hidden call-summary text-white">
+        <h2 class="text-2xl font-bold mb-4">Call Summary</h2>
+        <div class="mb-4">
+            <p>Duration: <span id="summaryDuration">00:00</span></p>
+            <p>Call Quality: <span id="summaryQuality">Excellent</span></p>
+        </div>
+        <button onclick="closeCallSummary()" class="neon-button bg-blue-500 text-white px-6 py-2 rounded w-full">
+            Close
+        </button>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Initialize WebRTC and Socket.io connections
+        const socket = io();
+        let localStream;
+        let peerConnection;
+        let myId;
+        let mediaRecorder;
+        let recordedChunks = [];
+        let callStartTime;
+        let callDurationInterval;
+
+        // Generate secure random ID for user immediately on page load
+        window.onload = function() {
+            myId = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+            document.getElementById('myId').value = myId;
+        };
+
+        // Theme toggle
+        function toggleTheme() {
+            document.body.classList.toggle('dark-mode');
+        }
+
+        // Make local video draggable
+        const localVideo = document.getElementById('localVideo');
+        let isDragging = false;
+        let currentX;
+        let currentY;
+        let initialX;
+        let initialY;
+        let xOffset = 0;
+        let yOffset = 0;
+
+        localVideo.addEventListener('mousedown', dragStart);
+        document.addEventListener('mousemove', drag);
+        document.addEventListener('mouseup', dragEnd);
+
+        function dragStart(e) {
+            initialX = e.clientX - xOffset;
+            initialY = e.clientY - yOffset;
+            if (e.target === localVideo) {
+                isDragging = true;
+            }
+        }
+
+        function drag(e) {
+            if (isDragging) {
+                e.preventDefault();
+                currentX = e.clientX - initialX;
+                currentY = e.clientY - initialY;
+                xOffset = currentX;
+                yOffset = currentY;
+                setTranslate(currentX, currentY, localVideo);
+            }
+        }
+
+        function dragEnd(e) {
+            isDragging = false;
+        }
+
+        function setTranslate(xPos, yPos, el) {
+            el.style.transform = `translate3d(${xPos}px, ${yPos}px, 0)`;
+        }
+
+        // Call duration timer
+        function startCallTimer() {
+            callStartTime = Date.now();
+            callDurationInterval = setInterval(updateCallDuration, 1000);
+        }
+
+        function updateCallDuration() {
+            const duration = Math.floor((Date.now() - callStartTime) / 1000);
+            const minutes = Math.floor(duration / 60).toString().padStart(2, '0');
+            const seconds = (duration % 60).toString().padStart(2, '0');
+            document.getElementById('callDuration').textContent = `${minutes}:${seconds}`;
+        }
+
+        function showCallSummary() {
+            const duration = document.getElementById('callDuration').textContent;
+            document.getElementById('summaryDuration').textContent = duration;
+            document.getElementById('callSummary').classList.remove('hidden');
+        }
+
+        function closeCallSummary() {
+            document.getElementById('callSummary').classList.add('hidden');
+            document.getElementById('homeScreen').classList.remove('hidden');
+        }
+
+        // UI Functions
+        function copyId() {
+            const idInput = document.getElementById('myId');
+            navigator.clipboard.writeText(idInput.value)
+                .then(() => {
+                    gsap.to(idInput, {
+                        backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                        duration: 0.3,
+                        yoyo: true,
+                        repeat: 1
+                    });
+                });
+        }
+
+        function showPrivateCall() {
+            const section = document.getElementById('privateCallSection');
+            gsap.to(section, {
+                duration: 0.3,
+                height: section.classList.contains('hidden') ? 'auto' : 0,
+                opacity: section.classList.contains('hidden') ? 1 : 0,
+                onComplete: () => section.classList.toggle('hidden')
+            });
+        }
+
+        // Call Management Functions
+        function endCall() {
+            clearInterval(callDurationInterval);
+            showCallSummary();
+            document.getElementById('callInterface').classList.add('hidden');
+        }
+
+        // ... (WebRTC and Socket.io implementation)
+    </script>
+</body>
+</html>
+
+
+
+
+
