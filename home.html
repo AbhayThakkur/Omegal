@@ -287,14 +287,20 @@
             await setupCall();
             
             // Create and send offer
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            
-            socket.emit('initiate-call', {
-                from: myId,
-                to: peerId,
-                offer: offer
-            });
+            try {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                
+                socket.emit('initiate-call', {
+                    from: myId,
+                    to: peerId,
+                    offer: offer
+                });
+            } catch(err) {
+                console.error('Error creating offer:', err);
+                alert('Failed to initiate call. Please try again.');
+                endCall();
+            }
         }
     }
 
@@ -313,16 +319,21 @@
         document.getElementById('incomingCall').style.display = 'none';
         await setupCall();
         
-        // Create and send answer
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        
-        socket.emit('accept-call', {
-            from: myId,
-            to: currentCallerId,
-            answer: answer
-        });
-        startCallTimer();
+        try {
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            
+            socket.emit('accept-call', {
+                from: myId,
+                to: currentCallerId,
+                answer: answer
+            });
+            startCallTimer();
+        } catch(err) {
+            console.error('Error creating answer:', err);
+            alert('Failed to accept call. Please try again.');
+            endCall();
+        }
     }
 
     // Function to reject incoming call
@@ -341,60 +352,98 @@
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             localStream = stream;
             document.getElementById('localVideo').srcObject = stream;
-            createPeerConnection();
+            
+            // Create peer connection before proceeding
+            await createPeerConnection();
+            
             document.getElementById('homeScreen').classList.add('hidden');
             document.getElementById('callInterface').classList.remove('hidden');
         } catch(err) {
             console.error('Error accessing media devices:', err);
             alert('Failed to access camera and microphone. Please check permissions.');
+            endCall();
         }
     }
 
     // Create peer connection
-    function createPeerConnection() {
+    async function createPeerConnection() {
         const configuration = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
+                { urls: 'stun:stun1.l.google.com:19302' },
+                {
+                    urls: 'turn:numb.viagenie.ca',
+                    username: 'webrtc@live.com',
+                    credential: 'muazkh'
+                }
             ]
         };
         
-        peerConnection = new RTCPeerConnection(configuration);
-        
-        localStream.getTracks().forEach(track => {
-            peerConnection.addTrack(track, localStream);
-        });
+        try {
+            peerConnection = new RTCPeerConnection(configuration);
+            
+            localStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, localStream);
+            });
 
-        peerConnection.ontrack = event => {
-            document.getElementById('remoteVideo').srcObject = event.streams[0];
-        };
+            peerConnection.ontrack = event => {
+                const remoteVideo = document.getElementById('remoteVideo');
+                if (event.streams && event.streams[0]) {
+                    remoteVideo.srcObject = event.streams[0];
+                }
+            };
 
-        peerConnection.onicecandidate = event => {
-            if (event.candidate) {
-                socket.emit('ice-candidate', {
-                    candidate: event.candidate,
-                    from: myId,
-                    to: currentCallerId
-                });
-            }
-        };
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    socket.emit('ice-candidate', {
+                        candidate: event.candidate,
+                        from: myId,
+                        to: currentCallerId
+                    });
+                }
+            };
+
+            peerConnection.oniceconnectionstatechange = () => {
+                console.log("ICE Connection State:", peerConnection.iceConnectionState);
+                if (peerConnection.iceConnectionState === 'failed' || 
+                    peerConnection.iceConnectionState === 'disconnected') {
+                    alert('Connection failed. Please try again.');
+                    endCall();
+                }
+            };
+            
+        } catch(err) {
+            console.error('Error creating peer connection:', err);
+            throw err;
+        }
     }
 
     // Socket event handlers
     socket.on("call-initiated", async (data) => {
         if(data.to === myId) {
-            showIncomingCall(data.from);
-            // Set remote description when receiving offer
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+            try {
+                await createPeerConnection();
+                showIncomingCall(data.from);
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+            } catch(err) {
+                console.error('Error handling incoming call:', err);
+                alert('Failed to handle incoming call');
+                endCall();
+            }
         }
     });
 
     socket.on("call-accepted", async (data) => {
         if(data.to === myId) {
-            // Set remote description when receiving answer
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-            document.getElementById('callInterface').classList.remove("hidden");
-            startCallTimer();
+            try {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+                document.getElementById('callInterface').classList.remove("hidden");
+                startCallTimer();
+            } catch(err) {
+                console.error('Error handling call acceptance:', err);
+                alert('Failed to establish connection');
+                endCall();
+            }
         }
     });
 
@@ -426,7 +475,7 @@
             try {
                 await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
             } catch(e) {
-                console.error(e);
+                console.error('Error adding ICE candidate:', e);
             }
         }
     });
