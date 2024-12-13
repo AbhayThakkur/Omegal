@@ -57,6 +57,15 @@
             font-size: 16px;
             width: 200px;
         }
+        .room-code {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px;
+            padding: 10px;
+            background: #e0e0e0;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -65,13 +74,17 @@
     </div>
     
     <div class="connection-status" id="connectionDetails">
-        Enter a room code to connect with your friend
+        Your room code is: 
+    </div>
+
+    <div class="room-code" id="roomCode">
+        <!-- Room code will be generated here -->
     </div>
 
     <input type="text" 
            class="room-input" 
            id="roomInput" 
-           placeholder="Enter room code">
+           placeholder="Enter friend's room code">
 
     <div class="error-log" id="errorLog"></div>
 
@@ -92,11 +105,16 @@
         const errorLog = document.getElementById('errorLog');
         const connectButton = document.getElementById('connectButton');
         const roomInput = document.getElementById('roomInput');
+        const roomCode = document.getElementById('roomCode');
         let localStream;
         let peerConnection;
         let connectionAttempts = 0;
         const MAX_ATTEMPTS = 5;
         let reconnectTimer = null;
+
+        // Generate a random room code when page loads
+        const myRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        roomCode.textContent = myRoomCode;
 
         const configuration = {
             iceServers: [
@@ -120,7 +138,7 @@
 
         async function startConnection() {
             if (!roomInput.value.trim()) {
-                errorLog.textContent = 'Please enter a room code first';
+                errorLog.textContent = 'Please enter your friend\'s room code first';
                 return;
             }
 
@@ -198,7 +216,7 @@
                 setTimeout(() => {
                     statusMessage.textContent = 'Connection Status: Waiting for Signaling Server';
                     connectionDetails.textContent = 'Attempting to establish secure connection...';
-                    errorLog.textContent = 'Please ensure both users are using the same room code';
+                    errorLog.textContent = 'Please ensure both users are using the correct room codes';
                     connectButton.disabled = false;
                 }, 2000);
 
