@@ -100,7 +100,21 @@
             </button>
         </div>
     </div>
-
+    <div id="app" class="w-full max-w-lg mx-auto p-4 shadow-lg rounded bg-white dark:bg-gray-800">
+        <!-- Call Screen -->
+        <div id="call-screen" class="hidden">
+            <h2 class="text-xl font-semibold text-center">In Call</h2>
+            <div class="flex justify-between items-center my-4">
+                <video id="local-video" class="bg-black w-1/2 rounded"></video>
+                <video id="remote-video" class="bg-black w-1/2 rounded"></video>
+            </div>
+            <div class="flex justify-center gap-4 mt-4">
+                <button id="toggle-audio" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded">Mute Audio</button>
+            <button id="toggle-video" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">Stop Video</button>
+                <button id="end-call" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">End Call</button>
+            </div>
+        </div>
+    </div>
     <!-- Home Screen -->
     <div id="homeScreen" class="container mx-auto px-4 py-8">
         <div class="glass-panel p-8 max-w-2xl mx-auto">
