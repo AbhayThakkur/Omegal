@@ -13,12 +13,12 @@
             border-radius: 15px;
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
-        
+
         .neon-button {
             box-shadow: 0 0 15px rgba(66, 135, 245, 0.5);
             transition: all 0.3s ease;
         }
-        
+
         .neon-button:hover {
             box-shadow: 0 0 25px rgba(66, 135, 245, 0.8);
             transform: scale(1.05);
@@ -77,13 +77,13 @@
     <div id="homeScreen" class="container mx-auto px-4 py-8">
         <div class="glass-panel p-8 max-w-2xl mx-auto">
             <h1 class="text-4xl font-bold text-white text-center mb-8">Video Chat App</h1>
-            
+
             <!-- My ID Section -->
             <div class="bg-white bg-opacity-20 rounded-lg p-6 mb-8">
                 <h2 class="text-2xl font-semibold text-white mb-4">My ID</h2>
                 <div class="flex items-center space-x-2">
                     <div class="status-indicator"></div>
-                    <input type="text" id="myId" readonly class="bg-white bg-opacity-20 text-white px-4 py-3 rounded flex-grow text-lg font-mono" value="Generating ID...">
+                    <input type="text" id="myId" readonly class="bg-white bg-opacity-20 text-white px-4 py-3 rounded flex-grow text-lg font-mono" value="ID will appear here...">
                     <button onclick="copyId()" class="neon-button bg-blue-500 text-white px-6 py-3 rounded flex items-center">
                         <span>Copy ID</span>
                     </button>
@@ -116,10 +116,10 @@
         <div class="relative h-full">
             <!-- Remote Video -->
             <video id="remoteVideo" class="w-full h-full object-cover" autoplay playsinline></video>
-            
+
             <!-- Local Video (Draggable) -->
             <video id="localVideo" class="draggable-video absolute top-4 right-4 w-1/4 max-w-xs rounded-lg shadow-lg" autoplay playsinline muted></video>
-            
+
             <!-- Call Status -->
             <div class="absolute top-4 left-4 bg-black bg-opacity-50 rounded-lg p-2">
                 <div class="flex items-center">
@@ -150,172 +150,89 @@
                 </button>
                 <button onclick="toggleRecording()" class="neon-button bg-blue-500 p-4 rounded-full hover:bg-blue-600">
                     <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <circle cx="12" cy="12" r="10" stroke-width="2"></circle>
-                        <circle cx="12" cy="12" r="4" fill="currentColor"></circle>
-                    </svg>
-                </button>
-                <button onclick="toggleChat()" class="neon-button bg-blue-500 p-4 rounded-full hover:bg-blue-600">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"></circle>
                     </svg>
                 </button>
                 <button onclick="endCall()" class="neon-button bg-red-500 p-4 rounded-full hover:bg-red-600">
                     <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 19L18 5m0 14L6 5"></path>
                     </svg>
                 </button>
-            </div>
-
-            <!-- Chat Panel -->
-            <div id="chatPanel" class="hidden absolute right-4 top-1/4 bottom-24 w-72 bg-black bg-opacity-50 rounded-lg p-4">
-                <div id="chatMessages" class="h-full overflow-y-auto mb-4"></div>
-                <div class="flex">
-                    <input type="text" id="chatInput" class="flex-grow bg-white bg-opacity-20 text-white px-3 py-2 rounded-l" placeholder="Type a message...">
-                    <button onclick="sendMessage()" class="neon-button bg-blue-500 px-4 rounded-r">Send</button>
-                </div>
             </div>
         </div>
     </div>
 
-    <!-- Call Summary -->
-    <div id="callSummary" class="hidden call-summary text-white">
-        <h2 class="text-2xl font-bold mb-4">Call Summary</h2>
-        <div class="mb-4">
-            <p>Duration: <span id="summaryDuration">00:00</span></p>
-            <p>Call Quality: <span id="summaryQuality">Excellent</span></p>
+    <!-- Call Summary Modal -->
+    <div id="callSummary" class="call-summary hidden">
+        <h2 class="text-white text-2xl font-semibold mb-4">Call Summary</h2>
+        <div class="text-white">
+            <p>Duration: <span id="callDurationSummary">00:00</span></p>
+            <p>Call ended successfully.</p>
         </div>
-        <button onclick="closeCallSummary()" class="neon-button bg-blue-500 text-white px-6 py-2 rounded w-full">
+        <button onclick="closeSummary()" class="neon-button bg-blue-500 text-white mt-4 px-6 py-3 rounded">
             Close
         </button>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
     <script>
-        // Initialize WebRTC and Socket.io connections
-        const socket = io();
-        let localStream;
-        let peerConnection;
-        let myId;
-        let mediaRecorder;
-        let recordedChunks = [];
-        let callStartTime;
-        let callDurationInterval;
+        // Assuming you have some logic for generating an ID, for now, I'll just use a random number
+        document.getElementById('myId').value = Math.floor(Math.random() * 1000000);
 
-        // Generate secure random ID for user immediately on page load
-        window.onload = function() {
-            myId = Array.from(crypto.getRandomValues(new Uint8Array(16)))
-                .map(b => b.toString(16).padStart(2, '0'))
-                .join('');
-            document.getElementById('myId').value = myId;
-        };
+        function copyId() {
+            const idField = document.getElementById('myId');
+            idField.select();
+            document.execCommand('copy');
+            alert('ID copied to clipboard!');
+        }
 
-        // Theme toggle
         function toggleTheme() {
             document.body.classList.toggle('dark-mode');
         }
 
-        // Make local video draggable
-        const localVideo = document.getElementById('localVideo');
-        let isDragging = false;
-        let currentX;
-        let currentY;
-        let initialX;
-        let initialY;
-        let xOffset = 0;
-        let yOffset = 0;
-
-        localVideo.addEventListener('mousedown', dragStart);
-        document.addEventListener('mousemove', drag);
-        document.addEventListener('mouseup', dragEnd);
-
-        function dragStart(e) {
-            initialX = e.clientX - xOffset;
-            initialY = e.clientY - yOffset;
-            if (e.target === localVideo) {
-                isDragging = true;
-            }
-        }
-
-        function drag(e) {
-            if (isDragging) {
-                e.preventDefault();
-                currentX = e.clientX - initialX;
-                currentY = e.clientY - initialY;
-                xOffset = currentX;
-                yOffset = currentY;
-                setTranslate(currentX, currentY, localVideo);
-            }
-        }
-
-        function dragEnd(e) {
-            isDragging = false;
-        }
-
-        function setTranslate(xPos, yPos, el) {
-            el.style.transform = `translate3d(${xPos}px, ${yPos}px, 0)`;
-        }
-
-        // Call duration timer
-        function startCallTimer() {
-            callStartTime = Date.now();
-            callDurationInterval = setInterval(updateCallDuration, 1000);
-        }
-
-        function updateCallDuration() {
-            const duration = Math.floor((Date.now() - callStartTime) / 1000);
-            const minutes = Math.floor(duration / 60).toString().padStart(2, '0');
-            const seconds = (duration % 60).toString().padStart(2, '0');
-            document.getElementById('callDuration').textContent = `${minutes}:${seconds}`;
-        }
-
-        function showCallSummary() {
-            const duration = document.getElementById('callDuration').textContent;
-            document.getElementById('summaryDuration').textContent = duration;
-            document.getElementById('callSummary').classList.remove('hidden');
-        }
-
-        function closeCallSummary() {
-            document.getElementById('callSummary').classList.add('hidden');
-            document.getElementById('homeScreen').classList.remove('hidden');
-        }
-
-        // UI Functions
-        function copyId() {
-            const idInput = document.getElementById('myId');
-            navigator.clipboard.writeText(idInput.value)
-                .then(() => {
-                    gsap.to(idInput, {
-                        backgroundColor: 'rgba(34, 197, 94, 0.2)',
-                        duration: 0.3,
-                        yoyo: true,
-                        repeat: 1
-                    });
-                });
+        function startRandomMatch() {
+            // Simulate random match logic
+            console.log('Starting random match...');
+            document.getElementById('homeScreen').classList.add('hidden');
+            document.getElementById('callInterface').classList.remove('hidden');
         }
 
         function showPrivateCall() {
-            const section = document.getElementById('privateCallSection');
-            gsap.to(section, {
-                duration: 0.3,
-                height: section.classList.contains('hidden') ? 'auto' : 0,
-                opacity: section.classList.contains('hidden') ? 1 : 0,
-                onComplete: () => section.classList.toggle('hidden')
-            });
+            document.getElementById('privateCallSection').classList.remove('hidden');
         }
 
-        // Call Management Functions
+        function startPrivateCall() {
+            const peerId = document.getElementById('peerId').value;
+            if (peerId) {
+                console.log(`Starting private call with ${peerId}...`);
+                // Private call logic
+                document.getElementById('homeScreen').classList.add('hidden');
+                document.getElementById('callInterface').classList.remove('hidden');
+            }
+        }
+
         function endCall() {
-            clearInterval(callDurationInterval);
-            showCallSummary();
+            console.log('Ending call...');
             document.getElementById('callInterface').classList.add('hidden');
+            document.getElementById('callSummary').classList.remove('hidden');
+            updateCallSummary();
         }
 
-        // ... (WebRTC and Socket.io implementation)
+        function updateCallSummary() {
+            const duration = calculateCallDuration();
+            document.getElementById('callDurationSummary').innerText = duration;
+        }
+
+        function calculateCallDuration() {
+            const duration = Date.now() - callStartTime;
+            const minutes = Math.floor(duration / 60000);
+            const seconds = Math.floor((duration % 60000) / 1000);
+            return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+        }
+
+        function closeSummary() {
+            document.getElementById('callSummary').classList.add('hidden');
+            document.getElementById('homeScreen').classList.remove('hidden');
+        }
     </script>
 </body>
 </html>
-
-
-
-
-
