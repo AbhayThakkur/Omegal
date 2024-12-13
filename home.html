@@ -16,45 +16,40 @@
             height: 300px;
             background: #333;
         }
-        .controls {
+        .status-message {
             text-align: center;
-            margin: 20px;
-        }
-        button {
-            padding: 10px 20px;
-            margin: 0 10px;
-            font-size: 16px;
-        }
-        .connection-status {
-            text-align: center;
-            padding: 10px;
+            padding: 15px;
+            background: #ff5252;
+            color: white;
+            font-size: 18px;
             margin: 10px;
-            background-color: #ffebee;
-            border: 1px solid #ffcdd2;
-            border-radius: 4px;
         }
-        #connectionError {
-            color: #c62828;
-            font-weight: bold;
-        }
-        .retry-button {
-            background-color: #2196F3;
+        .connect-button {
+            display: block;
+            margin: 10px auto;
+            padding: 12px 24px;
+            background: #4CAF50;
             color: white;
             border: none;
             border-radius: 4px;
+            font-size: 16px;
             cursor: pointer;
         }
-        .retry-button:hover {
-            background-color: #1976D2;
+        .connect-button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
         }
     </style>
 </head>
 <body>
-    <div class="connection-status">
-        <p id="connectionError">Not connected to video chat</p>
-        <button id="retryConnection" class="retry-button">Retry Connection</button>
+    <div class="status-message" id="statusMessage">
+        Not Connected - Waiting for Connection
     </div>
     
+    <button class="connect-button" id="connectButton">
+        Try to Connect
+    </button>
+
     <div class="video-container">
         <video id="localVideo" autoplay playsinline></video>
         <video id="remoteVideo" autoplay playsinline></video>
@@ -63,132 +58,82 @@
     <script>
         const localVideo = document.getElementById('localVideo');
         const remoteVideo = document.getElementById('remoteVideo');
-        const retryButton = document.getElementById('retryConnection');
-        const connectionError = document.getElementById('connectionError');
+        const statusMessage = document.getElementById('statusMessage');
+        const connectButton = document.getElementById('connectButton');
         let localStream;
         let peerConnection;
-        let connectionAttempts = 0;
-        const MAX_RETRIES = 3;
 
         const configuration = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
                 {
                     urls: 'turn:numb.viagenie.ca',
                     credential: 'muazkh',
                     username: 'webrtc@live.com'
                 }
-            ],
-            iceCandidatePoolSize: 10
+            ]
         };
 
-        async function initConnection() {
-            connectionError.textContent = 'Attempting to connect...';
-            
-            try {
-                // Reset previous connection if exists
-                if (peerConnection) {
-                    peerConnection.close();
-                }
-                
-                // Get local stream
-                if (!localStream) {
-                    localStream = await navigator.mediaDevices.getUserMedia({ 
-                        video: true, 
-                        audio: true 
-                    });
-                    localVideo.srcObject = localStream;
-                }
+        async function startConnection() {
+            statusMessage.textContent = 'Trying to connect...';
+            connectButton.disabled = true;
 
-                // Create new peer connection
+            try {
+                // Get camera and microphone
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true
+                });
+                localVideo.srcObject = localStream;
+
+                // Create peer connection
                 peerConnection = new RTCPeerConnection(configuration);
-                
-                // Add connection state monitoring
-                peerConnection.onconnectionstatechange = handleConnectionStateChange;
-                peerConnection.oniceconnectionstatechange = handleIceConnectionStateChange;
-                
-                // Add local tracks to connection
+
+                // Add local stream
                 localStream.getTracks().forEach(track => {
                     peerConnection.addTrack(track, localStream);
                 });
 
-                // Handle remote stream
-                peerConnection.ontrack = event => {
+                // Listen for remote stream
+                peerConnection.ontrack = (event) => {
                     remoteVideo.srcObject = event.streams[0];
                 };
 
-                // Create and set offer
-                const offer = await peerConnection.createOffer({
-                    offerToReceiveAudio: true,
-                    offerToReceiveVideo: true
-                });
-                await peerConnection.setLocalDescription(offer);
-
-                // Monitor ICE gathering state
-                peerConnection.onicegatheringstatechange = () => {
-                    if (peerConnection.iceGatheringState === 'complete') {
-                        checkConnection();
+                // Connection state handling
+                peerConnection.onconnectionstatechange = () => {
+                    if (peerConnection.connectionState === 'disconnected') {
+                        statusMessage.textContent = 'Not Connected - Connection Lost';
+                        connectButton.disabled = false;
                     }
                 };
 
+                // ICE connection state handling
+                peerConnection.oniceconnectionstatechange = () => {
+                    if (peerConnection.iceConnectionState === 'failed') {
+                        statusMessage.textContent = 'Not Connected - Failed to Connect';
+                        connectButton.disabled = false;
+                    }
+                };
+
+                // Here we need a signaling server to exchange connection info
+                // This is just a placeholder showing the connection is not complete
+                setTimeout(() => {
+                    statusMessage.textContent = 'Not Connected - No Signaling Server Available';
+                    connectButton.disabled = false;
+                }, 3000);
+
             } catch (error) {
-                handleConnectionError(error);
+                console.error('Connection failed:', error);
+                statusMessage.textContent = 'Not Connected - Cannot Access Camera/Microphone';
+                connectButton.disabled = false;
             }
         }
 
-        function handleConnectionStateChange() {
-            switch(peerConnection.connectionState) {
-                case 'connected':
-                    connectionError.textContent = 'Connected successfully!';
-                    connectionError.style.color = '#2E7D32';
-                    break;
-                case 'disconnected':
-                case 'failed':
-                    handleConnectionError('Connection lost or failed');
-                    break;
-                case 'closed':
-                    connectionError.textContent = 'Connection closed';
-                    break;
-            }
-        }
+        // Connect button handler
+        connectButton.addEventListener('click', startConnection);
 
-        function handleIceConnectionStateChange() {
-            if (peerConnection.iceConnectionState === 'failed') {
-                handleConnectionError('ICE connection failed');
-            }
-        }
-
-        function handleConnectionError(error) {
-            console.error('Connection error:', error);
-            connectionError.textContent = 'Failed to connect. Please try again.';
-            connectionError.style.color = '#c62828';
-            connectionAttempts++;
-            
-            if (connectionAttempts >= MAX_RETRIES) {
-                connectionError.textContent = 'Connection failed after multiple attempts. Please check your internet connection.';
-                retryButton.disabled = true;
-            }
-        }
-
-        function checkConnection() {
-            if (!peerConnection || peerConnection.connectionState === 'failed') {
-                handleConnectionError('Connection check failed');
-            }
-        }
-
-        // Add retry button functionality
-        retryButton.addEventListener('click', () => {
-            if (connectionAttempts < MAX_RETRIES) {
-                initConnection();
-            }
-        });
-
-        // Initialize connection on page load
-        window.addEventListener('load', initConnection);
-
-        // Add window unload handler to clean up
+        // Cleanup on page unload
         window.addEventListener('unload', () => {
             if (localStream) {
                 localStream.getTracks().forEach(track => track.stop());
