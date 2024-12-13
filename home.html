@@ -64,6 +64,18 @@
             border-radius: 15px;
             z-index: 1000;
         }
+
+        .incoming-call {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 2rem;
+            border-radius: 15px;
+            z-index: 1000;
+            display: none;
+        }
     </style>
 </head>
 
@@ -74,6 +86,20 @@
     <button onclick="toggleTheme()" class="fixed top-4 right-4 neon-button bg-gray-800 text-white px-4 py-2 rounded-full">
         Toggle Theme
     </button>
+
+    <!-- Incoming Call Dialog -->
+    <div id="incomingCall" class="incoming-call glass-panel">
+        <h2 class="text-2xl font-bold text-white mb-4">Incoming Call</h2>
+        <p class="text-white mb-4">Call from: <span id="callerId" class="font-semibold"></span></p>
+        <div class="flex justify-center space-x-4">
+            <button onclick="acceptIncomingCall()" class="neon-button bg-green-500 text-white px-6 py-3 rounded">
+                Accept
+            </button>
+            <button onclick="rejectIncomingCall()" class="neon-button bg-red-500 text-white px-6 py-3 rounded">
+                Reject
+            </button>
+        </div>
+    </div>
 
     <!-- Home Screen -->
     <div id="homeScreen" class="container mx-auto px-4 py-8">
@@ -178,6 +204,12 @@
                         <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"></circle>
                     </svg>
                 </button>
+                <button onclick="endCall()" class="neon-button bg-red-500 p-4 rounded-full hover:bg-red-600">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
             </div>
         </div>
     </div>
@@ -189,6 +221,7 @@
     let peerConnection;
     let callTimer;
     let callStartTime;
+    let currentCallerId;
 
     // Function to generate random ID
     function generateRandomId(length = 8) {
@@ -239,6 +272,32 @@
         }
     }
 
+    // Function to show incoming call dialog
+    function showIncomingCall(callerId) {
+        currentCallerId = callerId;
+        document.getElementById('callerId').textContent = callerId;
+        document.getElementById('incomingCall').style.display = 'block';
+        // Play ringtone
+        playRingtone();
+    }
+
+    // Function to accept incoming call
+    function acceptIncomingCall() {
+        document.getElementById('incomingCall').style.display = 'none';
+        stopRingtone();
+        setupCall();
+        socket.emit('accept-call', currentCallerId);
+        startCallTimer();
+    }
+
+    // Function to reject incoming call
+    function rejectIncomingCall() {
+        document.getElementById('incomingCall').style.display = 'none';
+        stopRingtone();
+        socket.emit('reject-call', currentCallerId);
+        currentCallerId = null;
+    }
+
     // Function to setup call
     function setupCall() {
         navigator.mediaDevices.getUserMedia({ video: true, audio: true })
@@ -247,12 +306,22 @@
                 document.getElementById('localVideo').srcObject = stream;
                 createPeerConnection();
             })
-            .catch(err => console.error('Error accessing media devices:', err));
+            .catch(err => {
+                console.error('Error accessing media devices:', err);
+                alert('Failed to access camera and microphone. Please check permissions.');
+            });
     }
 
     // Create peer connection
     function createPeerConnection() {
-        peerConnection = new RTCPeerConnection();
+        const configuration = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+        
+        peerConnection = new RTCPeerConnection(configuration);
         
         localStream.getTracks().forEach(track => {
             peerConnection.addTrack(track, localStream);
@@ -260,6 +329,15 @@
 
         peerConnection.ontrack = event => {
             document.getElementById('remoteVideo').srcObject = event.streams[0];
+        };
+
+        peerConnection.onicecandidate = event => {
+            if (event.candidate) {
+                socket.emit('ice-candidate', {
+                    candidate: event.candidate,
+                    to: currentCallerId
+                });
+            }
         };
 
         document.getElementById('homeScreen').classList.add('hidden');
@@ -291,7 +369,8 @@
         let elapsedTime = Math.floor((Date.now() - callStartTime) / 1000);
         let minutes = Math.floor(elapsedTime / 60);
         let seconds = elapsedTime % 60;
-        callDuration.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        document.getElementById('callDuration').textContent = 
+            `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     }
 
     // Start the call timer
@@ -303,7 +382,7 @@
     // End the call and reset the timer
     function endCall() {
         clearInterval(callTimer);
-        callDuration.textContent = "00:00";
+        document.getElementById('callDuration').textContent = "00:00";
         if (peerConnection) {
             peerConnection.close();
             peerConnection = null;
@@ -315,17 +394,13 @@
         document.getElementById('remoteVideo').srcObject = null;
         document.getElementById('callInterface').classList.add("hidden");
         document.getElementById('homeScreen').classList.remove("hidden");
+        socket.emit('end-call', currentCallerId);
+        currentCallerId = null;
     }
 
     // Socket event handlers
     socket.on("call-initiated", (callerId) => {
-        if (confirm(`Incoming call from ${callerId}. Do you want to accept?`)) {
-            setupCall();
-            socket.emit("accept-call", callerId);
-            startCallTimer();
-        } else {
-            socket.emit("reject-call", callerId);
-        }
+        showIncomingCall(callerId);
     });
 
     socket.on("call-accepted", () => {
@@ -333,13 +408,32 @@
         startCallTimer();
     });
 
+    socket.on("call-rejected", () => {
+        alert("Call was rejected");
+        endCall();
+    });
+
+    socket.on("call-ended", () => {
+        alert("Call ended by remote user");
+        endCall();
+    });
+
     socket.on("random-match-found", (matchId) => {
         console.log("Matched with:", matchId);
+        currentCallerId = matchId;
         setupCall();
         startCallTimer();
     });
 
+    socket.on("ice-candidate", (data) => {
+        if (peerConnection) {
+            peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate))
+                .catch(e => console.error(e));
+        }
+    });
+
     // Add draggable functionality to local video element
+    const localVideo = document.getElementById('localVideo');
     localVideo.addEventListener('mousedown', (event) => {
         const offsetX = event.clientX - localVideo.getBoundingClientRect().left;
         const offsetY = event.clientY - localVideo.getBoundingClientRect().top;
@@ -356,6 +450,64 @@
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
     });
+
+    // Audio/Video toggle functions
+    function toggleAudio() {
+        if (localStream) {
+            const audioTrack = localStream.getAudioTracks()[0];
+            if (audioTrack) {
+                audioTrack.enabled = !audioTrack.enabled;
+            }
+        }
+    }
+
+    function toggleVideo() {
+        if (localStream) {
+            const videoTrack = localStream.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.enabled = !videoTrack.enabled;
+            }
+        }
+    }
+
+    // Recording functionality
+    let mediaRecorder;
+    let recordedChunks = [];
+
+    function toggleRecording() {
+        if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+            startRecording();
+        } else {
+            stopRecording();
+        }
+    }
+
+    function startRecording() {
+        recordedChunks = [];
+        const stream = document.getElementById('remoteVideo').srcObject;
+        mediaRecorder = new MediaRecorder(stream);
+        
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                recordedChunks.push(event.data);
+            }
+        };
+
+        mediaRecorder.onstop = () => {
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'recorded-call.webm';
+            a.click();
+        };
+
+        mediaRecorder.start();
+    }
+
+    function stopRecording() {
+        mediaRecorder.stop();
+    }
 </script>
 
 </body>
