@@ -1,490 +1,84 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Video Chat App</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Video Chat</title>
     <style>
-        .glass-panel {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+        .video-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin: 20px;
         }
-
-        .neon-button {
-            box-shadow: 0 0 15px rgba(66, 135, 245, 0.5);
-            transition: all 0.3s ease;
-        }
-
-        .neon-button:hover {
-            box-shadow: 0 0 25px rgba(66, 135, 245, 0.8);
-            transform: scale(1.05);
-        }
-
-        .dark-mode {
-            background-color: #1a1a1a;
-            color: #ffffff;
-        }
-
-        .particles {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: -1;
-        }
-
-        .status-indicator {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background-color: #22c55e;
-            display: inline-block;
-            margin-right: 8px;
-        }
-
-        .draggable-video {
-            cursor: move;
-            transition: transform 0.2s;
-        }
-
-        .call-summary {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.9);
-            padding: 2rem;
-            border-radius: 15px;
-            z-index: 1000;
-        }
-
-        .incoming-call {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.9);
-            padding: 2rem;
-            border-radius: 15px;
-            z-index: 1000;
-            display: none;
+        video {
+            width: 400px;
+            height: 300px;
+            background: #333;
         }
     </style>
 </head>
-
-<body class="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600" onload="generateAndDisplayId()">
-    <div class="particles" id="particles"></div>
-
-    <!-- Theme Toggle -->
-    <button onclick="toggleTheme()" class="fixed top-4 right-4 neon-button bg-gray-800 text-white px-4 py-2 rounded-full">
-        Toggle Theme
-    </button>
-
-    <!-- Incoming Call Dialog -->
-    <div id="incomingCall" class="incoming-call glass-panel">
-        <h2 class="text-2xl font-bold text-white mb-4">Incoming Call</h2>
-        <p class="text-white mb-4">Call from: <span id="callerId" class="font-semibold"></span></p>
-        <div class="flex justify-center space-x-4">
-            <button onclick="acceptIncomingCall()" class="neon-button bg-green-500 text-white px-6 py-3 rounded">
-                Accept
-            </button>
-            <button onclick="rejectIncomingCall()" class="neon-button bg-red-500 text-white px-6 py-3 rounded">
-                Reject
-            </button>
-        </div>
-    </div>
-    <div id="app" class="w-full max-w-lg mx-auto p-4 shadow-lg rounded bg-white dark:bg-gray-800">
-        <!-- Call Screen -->
-        <div id="call-screen" class="hidden">
-            <h2 class="text-xl font-semibold text-center">In Call</h2>
-            <div class="flex justify-between items-center my-4">
-                <video id="local-video" class="bg-black w-1/2 rounded"></video>
-                <video id="remote-video" class="bg-black w-1/2 rounded"></video>
-            </div>
-            <div class="flex justify-center gap-4 mt-4">
-                <button id="toggle-audio" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded">Mute Audio</button>
-            <button id="toggle-video" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">Stop Video</button>
-                <button id="end-call" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">End Call</button>
-            </div>
-        </div>
-    </div>
-    <!-- Home Screen -->
-    <div id="homeScreen" class="container mx-auto px-4 py-8">
-        <div class="glass-panel p-8 max-w-2xl mx-auto">
-            <h1 class="text-4xl font-bold text-white text-center mb-8">
-                Video Chat App
-            </h1>
-
-            <!-- My ID Section -->
-            <div class="bg-white bg-opacity-20 rounded-lg p-6 mb-8">
-                <h2 class="text-2xl font-semibold text-white mb-4">My ID</h2>
-                <div class="flex items-center space-x-2">
-                    <div class="status-indicator"></div>
-                    <input type="text" id="myId" readonly
-                        class="bg-white bg-opacity-20 text-white px-4 py-3 rounded flex-grow text-lg font-mono"
-                        value="Loading your ID..." />
-                    <button onclick="copyId()" class="neon-button bg-blue-500 text-white px-6 py-3 rounded flex items-center">
-                        <span>Copy ID</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Main Actions -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <button onclick="startRandomMatch()"
-                    class="neon-button bg-green-500 text-white px-8 py-6 rounded-lg text-xl font-bold hover:bg-green-600">
-                    Random Match
-                </button>
-                <button onclick="showPrivateCall()"
-                    class="neon-button bg-purple-500 text-white px-8 py-6 rounded-lg text-xl font-bold hover:bg-purple-600">
-                    Private Call
-                </button>
-            </div>
-
-            <!-- Private Call Input -->
-            <div id="privateCallSection" class="hidden bg-white bg-opacity-20 rounded-lg p-6">
-                <h2 class="text-xl font-semibold text-white mb-4">
-                    Start Private Call
-                </h2>
-                <div class="flex items-center space-x-2">
-                    <input type="text" id="peerId" placeholder="Enter friend's ID"
-                        class="bg-white bg-opacity-20 text-white px-4 py-3 rounded flex-grow" />
-                    <button onclick="startPrivateCall()"
-                        class="neon-button bg-blue-500 text-white px-6 py-3 rounded">
-                        Call
-                    </button>
-                </div>
-            </div>
-        </div>
+<body>
+    <div class="video-container">
+        <video id="localVideo" autoplay playsinline></video>
+        <video id="remoteVideo" autoplay playsinline></video>
     </div>
 
-    <!-- Call Interface -->
-    <div id="callInterface" class="hidden fixed inset-0 bg-black">
-        <div class="relative h-full">
-            <!-- Remote Video -->
-            <video id="remoteVideo" class="w-full h-full object-cover" autoplay playsinline></video>
-
-            <!-- Local Video (Draggable) -->
-            <video id="localVideo"
-                class="draggable-video absolute top-4 right-4 w-1/4 max-w-xs rounded-lg shadow-lg" autoplay
-                playsinline muted></video>
-
-            <!-- Call Status -->
-            <div class="absolute top-4 left-4 bg-black bg-opacity-50 rounded-lg p-2">
-                <div class="flex items-center">
-                    <div class="status-indicator"></div>
-                    <span class="text-white">Connected</span>
-                </div>
-                <div class="text-white text-sm mt-1">
-                    <span id="callDuration">00:00</span>
-                </div>
-            </div>
-
-            <!-- Controls -->
-            <div
-                class="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex items-center space-x-4 bg-black bg-opacity-50 p-4 rounded-full">
-                <button onclick="toggleAudio()" class="neon-button bg-blue-500 p-4 rounded-full hover:bg-blue-600">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z">
-                        </path>
-                    </svg>
-                </button>
-                <button onclick="toggleVideo()" class="neon-button bg-blue-500 p-4 rounded-full hover:bg-blue-600">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z">
-                        </path>
-                    </svg>
-                </button>
-                <button onclick="toggleScreenShare()"
-                    class="neon-button bg-blue-500 p-4 rounded-full hover:bg-blue-600">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
-                        </path>
-                    </svg>
-                </button>
-                <button onclick="toggleRecording()"
-                    class="neon-button bg-blue-500 p-4 rounded-full hover:bg-blue-600">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"></circle>
-                    </svg>
-                </button>
-                <button onclick="endCall()" class="neon-button bg-red-500 p-4 rounded-full hover:bg-red-600">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.2/dist/socket.io.min.js"></script>
     <script>
-    let socket = io('http://localhost:3000');
-    let localStream;
-    let peerConnection;
-    let callTimer;
-    let callStartTime;
-    let currentCallerId;
-    let myId;
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+        let localStream;
+        let peerConnection;
 
-    // Function to generate random ID
-    function generateRandomId(length = 8) {
-        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-        let result = '';
-        for (let i = 0; i < length; i++) {
-            result += characters.charAt(Math.floor(Math.random() * characters.length));
-        }
-        return result;
-    }
-
-    // Function to display random ID when page loads
-    function generateAndDisplayId() {
-        const myIdInput = document.getElementById('myId');
-        myId = generateRandomId();
-        myIdInput.value = myId;
-        socket.emit('register', myId);
-    }
-
-    // Function to copy ID to clipboard
-    function copyId() {
-        const myIdInput = document.getElementById('myId');
-        myIdInput.select();
-        document.execCommand('copy');
-        alert('ID copied to clipboard!');
-    }
-
-    // Function to start random match
-    function startRandomMatch() {
-        socket.emit('find-random-match', myId);
-        setupCall();
-    }
-
-    // Function to show private call section
-    function showPrivateCall() {
-        document.getElementById('privateCallSection').classList.toggle('hidden');
-    }
-
-    // Function to start private call
-    async function startPrivateCall() {
-        const peerId = document.getElementById('peerId').value;
-        if (peerId) {
-            if(peerId === myId) {
-                alert("You cannot call yourself!");
-                return;
-            }
-            currentCallerId = peerId;
-            await setupCall();
-            
-            // Create and send offer
-            try {
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-                
-                socket.emit('initiate-call', {
-                    from: myId,
-                    to: peerId,
-                    offer: offer
-                });
-            } catch(err) {
-                console.error('Error creating offer:', err);
-                alert('Failed to initiate call. Please try again.');
-                endCall();
-            }
-        }
-    }
-
-    // Function to show incoming call dialog
-    function showIncomingCall(callerId) {
-        if(callerId === myId) {
-            return;
-        }
-        currentCallerId = callerId;
-        document.getElementById('callerId').textContent = callerId;
-        document.getElementById('incomingCall').style.display = 'block';
-    }
-
-    // Function to accept incoming call
-    async function acceptIncomingCall() {
-        document.getElementById('incomingCall').style.display = 'none';
-        await setupCall();
-        
-        try {
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            
-            socket.emit('accept-call', {
-                from: myId,
-                to: currentCallerId,
-                answer: answer
-            });
-            startCallTimer();
-        } catch(err) {
-            console.error('Error creating answer:', err);
-            alert('Failed to accept call. Please try again.');
-            endCall();
-        }
-    }
-
-    // Function to reject incoming call
-    function rejectIncomingCall() {
-        document.getElementById('incomingCall').style.display = 'none';
-        socket.emit('reject-call', {
-            from: myId,
-            to: currentCallerId
-        });
-        currentCallerId = null;
-    }
-
-    // Function to setup call
-    async function setupCall() {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            localStream = stream;
-            document.getElementById('localVideo').srcObject = stream;
-            
-            // Create peer connection before proceeding
-            await createPeerConnection();
-            
-            document.getElementById('homeScreen').classList.add('hidden');
-            document.getElementById('callInterface').classList.remove('hidden');
-        } catch(err) {
-            console.error('Error accessing media devices:', err);
-            alert('Failed to access camera and microphone. Please check permissions.');
-            endCall();
-        }
-    }
-
-    // Create peer connection
-    async function createPeerConnection() {
+        // STUN servers for NAT traversal
         const configuration = {
             iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                {
-                    urls: 'turn:numb.viagenie.ca',
-                    username: 'webrtc@live.com',
-                    credential: 'muazkh'
-                }
+                { urls: 'stun:stun.l.google.com:19302' }
             ]
         };
-        
-        try {
-            peerConnection = new RTCPeerConnection(configuration);
-            
-            localStream.getTracks().forEach(track => {
-                peerConnection.addTrack(track, localStream);
-            });
 
-            peerConnection.ontrack = event => {
-                const remoteVideo = document.getElementById('remoteVideo');
-                if (event.streams && event.streams[0]) {
+        // Initialize the connection when page loads
+        async function init() {
+            try {
+                // Get local video stream
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+
+                // Create peer connection
+                peerConnection = new RTCPeerConnection(configuration);
+
+                // Add local stream to peer connection
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                });
+
+                // Handle incoming video stream
+                peerConnection.ontrack = event => {
                     remoteVideo.srcObject = event.streams[0];
-                }
-            };
+                };
 
-            peerConnection.onicecandidate = event => {
-                if (event.candidate) {
-                    socket.emit('ice-candidate', {
-                        candidate: event.candidate,
-                        from: myId,
-                        to: currentCallerId
-                    });
-                }
-            };
+                // Create and send offer
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
 
-            peerConnection.oniceconnectionstatechange = () => {
-                console.log("ICE Connection State:", peerConnection.iceConnectionState);
-                if (peerConnection.iceConnectionState === 'failed' || 
-                    peerConnection.iceConnectionState === 'disconnected') {
-                    alert('Connection failed. Please try again.');
-                    endCall();
-                }
-            };
-            
-        } catch(err) {
-            console.error('Error creating peer connection:', err);
-            throw err;
-        }
-    }
+                // Here you would typically send the offer to the other peer
+                // For demo purposes, we'll just set it as remote description
+                await peerConnection.setRemoteDescription(offer);
 
-    // Socket event handlers
-    socket.on("call-initiated", async (data) => {
-        if(data.to === myId) {
-            try {
-                await createPeerConnection();
-                showIncomingCall(data.from);
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-            } catch(err) {
-                console.error('Error handling incoming call:', err);
-                alert('Failed to handle incoming call');
-                endCall();
+                // Create and set answer
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+
+                // Here you would typically send the answer to the other peer
+                await peerConnection.setRemoteDescription(answer);
+
+            } catch (error) {
+                console.error('Error initializing:', error);
             }
         }
-    });
 
-    socket.on("call-accepted", async (data) => {
-        if(data.to === myId) {
-            try {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-                document.getElementById('callInterface').classList.remove("hidden");
-                startCallTimer();
-            } catch(err) {
-                console.error('Error handling call acceptance:', err);
-                alert('Failed to establish connection');
-                endCall();
-            }
-        }
-    });
-
-    socket.on("call-rejected", (data) => {
-        if(data.to === myId) {
-            alert("Call was rejected");
-            endCall();
-        }
-    });
-
-    socket.on("call-ended", (data) => {
-        if(data.to === myId) {
-            alert("Call ended by remote user");
-            endCall();
-        }
-    });
-
-    socket.on("random-match-found", (data) => {
-        if(data.to === myId) {
-            console.log("Matched with:", data.from);
-            currentCallerId = data.from;
-            setupCall();
-            startCallTimer();
-        }
-    });
-
-    socket.on("ice-candidate", async (data) => {
-        if(data.to === myId && peerConnection) {
-            try {
-                await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-            } catch(e) {
-                console.error('Error adding ICE candidate:', e);
-            }
-        }
-    });
-
-    // Rest of the code remains the same...
-    // (Toggle functions, recording functionality, etc.)
-
+        // Start the connection when page loads
+        window.addEventListener('load', init);
     </script>
-
 </body>
-
 </html>
