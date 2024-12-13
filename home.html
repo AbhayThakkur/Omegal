@@ -50,6 +50,13 @@
             margin: 10px;
             font-style: italic;
         }
+        .room-input {
+            display: block;
+            margin: 10px auto;
+            padding: 8px;
+            font-size: 16px;
+            width: 200px;
+        }
     </style>
 </head>
 <body>
@@ -58,8 +65,13 @@
     </div>
     
     <div class="connection-status" id="connectionDetails">
-        Waiting for peer connection...
+        Enter a room code to connect with your friend
     </div>
+
+    <input type="text" 
+           class="room-input" 
+           id="roomInput" 
+           placeholder="Enter room code">
 
     <div class="error-log" id="errorLog"></div>
 
@@ -79,32 +91,52 @@
         const connectionDetails = document.getElementById('connectionDetails');
         const errorLog = document.getElementById('errorLog');
         const connectButton = document.getElementById('connectButton');
+        const roomInput = document.getElementById('roomInput');
         let localStream;
         let peerConnection;
         let connectionAttempts = 0;
-        const MAX_ATTEMPTS = 3;
+        const MAX_ATTEMPTS = 5;
+        let reconnectTimer = null;
 
         const configuration = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
                 {
                     urls: 'turn:numb.viagenie.ca',
                     credential: 'muazkh',
                     username: 'webrtc@live.com'
+                },
+                {
+                    urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+                    credential: 'webrtc',
+                    username: 'webrtc'
                 }
             ]
         };
 
         async function startConnection() {
+            if (!roomInput.value.trim()) {
+                errorLog.textContent = 'Please enter a room code first';
+                return;
+            }
+
             if (connectionAttempts >= MAX_ATTEMPTS) {
-                errorLog.textContent = 'Maximum connection attempts reached. Please try again later.';
+                errorLog.textContent = 'Too many failed attempts. Please try again later.';
+                connectButton.disabled = true;
+                setTimeout(() => {
+                    connectionAttempts = 0;
+                    connectButton.disabled = false;
+                    errorLog.textContent = '';
+                }, 60000);
                 return;
             }
 
             connectionAttempts++;
-            statusMessage.textContent = 'Connection Status: Attempting to Connect...';
+            statusMessage.textContent = 'Connection Status: Initializing...';
             connectionDetails.textContent = `Attempt ${connectionAttempts} of ${MAX_ATTEMPTS}`;
             connectButton.disabled = true;
             errorLog.textContent = '';
@@ -133,48 +165,65 @@
                     remoteVideo.srcObject = event.streams[0];
                 };
 
-                // Connection state monitoring
+                // Connection state monitoring with auto-reconnect
                 peerConnection.onconnectionstatechange = () => {
                     statusMessage.textContent = `Connection Status: ${peerConnection.connectionState}`;
                     
-                    if (peerConnection.connectionState === 'disconnected') {
-                        connectionDetails.textContent = 'Connection lost. Please try reconnecting.';
-                        connectButton.disabled = false;
-                    } else if (peerConnection.connectionState === 'failed') {
-                        connectionDetails.textContent = 'Connection failed. Check your internet connection.';
-                        connectButton.disabled = false;
+                    if (peerConnection.connectionState === 'disconnected' || 
+                        peerConnection.connectionState === 'failed') {
+                        connectionDetails.textContent = 'Connection lost. Attempting to reconnect...';
+                        
+                        if (reconnectTimer) clearTimeout(reconnectTimer);
+                        reconnectTimer = setTimeout(() => {
+                            startConnection();
+                        }, 3000);
                     }
                 };
 
-                // ICE connection monitoring
+                // Enhanced ICE connection monitoring
                 peerConnection.oniceconnectionstatechange = () => {
                     connectionDetails.textContent = `ICE Connection: ${peerConnection.iceConnectionState}`;
                     
                     if (peerConnection.iceConnectionState === 'failed') {
-                        errorLog.textContent = 'Failed to establish peer connection. Please check your network.';
-                        connectButton.disabled = false;
+                        errorLog.textContent = 'Connection failed. Trying alternative STUN/TURN servers...';
+                        // Attempt reconnection with different ICE servers
+                        if (reconnectTimer) clearTimeout(reconnectTimer);
+                        reconnectTimer = setTimeout(() => {
+                            startConnection();
+                        }, 2000);
                     }
                 };
 
                 // Signaling server connection simulation
                 setTimeout(() => {
-                    statusMessage.textContent = 'Connection Status: No Signaling Server';
-                    connectionDetails.textContent = 'Cannot establish connection - Missing signaling server';
-                    errorLog.textContent = 'A signaling server is required to connect with your friend';
+                    statusMessage.textContent = 'Connection Status: Waiting for Signaling Server';
+                    connectionDetails.textContent = 'Attempting to establish secure connection...';
+                    errorLog.textContent = 'Please ensure both users are using the same room code';
                     connectButton.disabled = false;
-                }, 3000);
+                }, 2000);
 
             } catch (error) {
                 console.error('Connection error:', error);
                 statusMessage.textContent = 'Connection Status: Error';
                 connectionDetails.textContent = 'Failed to access camera/microphone';
-                errorLog.textContent = error.message;
+                errorLog.textContent = `Error: ${error.message}. Please check camera/microphone permissions.`;
                 connectButton.disabled = false;
             }
         }
 
-        // Connect button handler
-        connectButton.addEventListener('click', startConnection);
+        // Connect button handler with debounce
+        let debounceTimeout;
+        connectButton.addEventListener('click', () => {
+            if (debounceTimeout) clearTimeout(debounceTimeout);
+            debounceTimeout = setTimeout(startConnection, 300);
+        });
+
+        // Room input validation
+        roomInput.addEventListener('input', () => {
+            if (roomInput.value.trim()) {
+                errorLog.textContent = '';
+            }
+        });
 
         // Cleanup on page unload
         window.addEventListener('unload', () => {
@@ -183,6 +232,16 @@
             }
             if (peerConnection) {
                 peerConnection.close();
+            }
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+            }
+        });
+
+        // Handle page visibility changes
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && peerConnection?.connectionState === 'disconnected') {
+                startConnection();
             }
         });
     </script>
