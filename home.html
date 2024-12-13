@@ -25,93 +25,175 @@
             margin: 0 10px;
             font-size: 16px;
         }
+        .status {
+            text-align: center;
+            color: #666;
+            margin: 10px;
+        }
+        .room-code {
+            text-align: center;
+            margin: 20px;
+        }
     </style>
 </head>
 <body>
+    <div class="room-code">
+        <input type="text" id="roomInput" placeholder="Enter room code">
+        <button id="joinRoom">Join Room</button>
+        <button id="createRoom">Create New Room</button>
+    </div>
+    <div class="status" id="connectionStatus">Not connected</div>
     <div class="video-container">
         <video id="localVideo" autoplay playsinline></video>
         <video id="remoteVideo" autoplay playsinline></video>
     </div>
     <div class="controls">
-        <button id="startButton">Start Chat</button>
-        <button id="connectButton">Connect with Friend</button>
+        <button id="startButton">Start Camera</button>
     </div>
 
     <script>
         const localVideo = document.getElementById('localVideo');
         const remoteVideo = document.getElementById('remoteVideo');
         const startButton = document.getElementById('startButton');
-        const connectButton = document.getElementById('connectButton');
+        const joinRoomButton = document.getElementById('joinRoom');
+        const createRoomButton = document.getElementById('createRoom');
+        const roomInput = document.getElementById('roomInput');
+        const statusDiv = document.getElementById('connectionStatus');
         let localStream;
         let peerConnection;
+        let roomId;
 
         const configuration = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
+                {
+                    urls: 'turn:numb.viagenie.ca',
+                    credential: 'muazkh',
+                    username: 'webrtc@live.com'
+                }
             ]
         };
 
+        // Initialize WebSocket connection to signaling server
+        const ws = new WebSocket('wss://your-signaling-server.com');
+
+        ws.onmessage = async (message) => {
+            const data = JSON.parse(message.data);
+            
+            switch(data.type) {
+                case 'room-created':
+                    roomId = data.roomId;
+                    statusDiv.textContent = `Room created! Share code: ${roomId}`;
+                    break;
+                    
+                case 'user-joined':
+                    statusDiv.textContent = 'Friend joined! Connecting...';
+                    createPeerConnection();
+                    break;
+                    
+                case 'offer':
+                    await handleOffer(data.offer);
+                    break;
+                    
+                case 'answer':
+                    await handleAnswer(data.answer);
+                    break;
+                    
+                case 'ice-candidate':
+                    await handleIceCandidate(data.candidate);
+                    break;
+            }
+        };
+
         startButton.addEventListener('click', initLocalStream);
-        connectButton.addEventListener('click', connectWithPeer);
+        createRoomButton.addEventListener('click', createRoom);
+        joinRoomButton.addEventListener('click', joinRoom);
 
         async function initLocalStream() {
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 localVideo.srcObject = localStream;
                 startButton.disabled = true;
-                connectButton.disabled = false;
+                statusDiv.textContent = 'Camera started. Create or join a room to connect.';
             } catch (error) {
-                console.error('Error accessing camera/microphone:', error);
-                alert('Please allow access to camera and microphone to start video chat');
+                console.error('Error accessing camera:', error);
+                statusDiv.textContent = 'Failed to access camera. Please check permissions.';
             }
         }
 
-        async function connectWithPeer() {
-            try {
-                peerConnection = new RTCPeerConnection(configuration);
-                
-                // Add local stream tracks to peer connection
-                localStream.getTracks().forEach(track => {
-                    peerConnection.addTrack(track, localStream);
-                });
-
-                // Handle incoming video stream
-                peerConnection.ontrack = event => {
-                    remoteVideo.srcObject = event.streams[0];
-                };
-
-                // Handle ICE candidates
-                peerConnection.onicecandidate = event => {
-                    if (event.candidate) {
-                        // Send ICE candidate to signaling server
-                        // You need to implement a signaling server to exchange this data
-                        console.log('New ICE candidate:', event.candidate);
-                    }
-                };
-
-                // Create offer
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-
-                // Send offer to signaling server
-                // You need to implement this part to exchange offer/answer with peer
-                console.log('Created offer:', offer);
-
-                // When you receive answer from peer via signaling server:
-                peerConnection.oniceconnectionstatechange = () => {
-                    console.log('ICE Connection State:', peerConnection.iceConnectionState);
-                };
-
-            } catch (error) {
-                console.error('Error connecting with peer:', error);
-                alert('Failed to establish connection. Please try again.');
+        function createRoom() {
+            if (!localStream) {
+                alert('Please start your camera first!');
+                return;
             }
+            ws.send(JSON.stringify({ type: 'create-room' }));
         }
 
-        // Initialize buttons
-        connectButton.disabled = true;
+        function joinRoom() {
+            if (!localStream) {
+                alert('Please start your camera first!');
+                return;
+            }
+            const code = roomInput.value.trim();
+            if (!code) {
+                alert('Please enter a room code!');
+                return;
+            }
+            ws.send(JSON.stringify({ type: 'join-room', roomId: code }));
+            statusDiv.textContent = 'Joining room...';
+        }
+
+        async function createPeerConnection() {
+            peerConnection = new RTCPeerConnection(configuration);
+            
+            localStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, localStream);
+            });
+
+            peerConnection.ontrack = event => {
+                remoteVideo.srcObject = event.streams[0];
+                statusDiv.textContent = 'Connected! Video chat is active.';
+            };
+
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    ws.send(JSON.stringify({
+                        type: 'ice-candidate',
+                        candidate: event.candidate,
+                        roomId: roomId
+                    }));
+                }
+            };
+
+            peerConnection.oniceconnectionstatechange = () => {
+                if (peerConnection.iceConnectionState === 'disconnected') {
+                    statusDiv.textContent = 'Connection lost. Please try reconnecting.';
+                }
+            };
+        }
+
+        async function handleOffer(offer) {
+            await createPeerConnection();
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            ws.send(JSON.stringify({
+                type: 'answer',
+                answer: answer,
+                roomId: roomId
+            }));
+        }
+
+        async function handleAnswer(answer) {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+        }
+
+        async function handleIceCandidate(candidate) {
+            if (peerConnection) {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+        }
     </script>
 </body>
 </html>
